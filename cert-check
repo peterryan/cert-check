@@ -1,0 +1,188 @@
+#!/bin/bash
+#
+# Check if SSL/TLS certificate will expire within N days.
+
+
+# Default args / params
+verbosity=1								# 1=Quiet, 2=Normal, 3=Debugging
+end_check_days=40
+
+tmpdir="${TMPDIR:-/tmp}/$(basename $0)"
+if [ ! -d "$tmpdir" ]; then
+	mkdir "$tmpdir" || exit 1
+fi
+
+
+
+
+#######################################
+# Output usage info.
+# Globals:
+#   $0
+# Arguments:
+#   None
+# Returns:
+#   None
+#######################################
+usage() {
+cat << EOF
+Usage: ${0##*/} [-d days] [-e email_address] [-h] [-v...] domain...
+
+    -d    number of days to check certificate expires within (default: ${end_check_days})
+    -e    email address to notify of certificate status changes
+    -h    display this help text and exit
+    -v    increase verbosity (default quiet, -v=informational, -vv=debugging)
+
+Examples:
+  ${0##*/} example.com                     # Check if certificate expires within ${end_check_days} days.
+  ${0##*/} -d 10 example.com               # Check if certificate expires within 10 days.
+  ${0##*/} -e foo@example.com example.com  # Send email if certificate expiry status has changed.
+  ${0##*/} example.com example.org         # Check two domains for certificate expiry.
+
+EOF
+}
+
+
+#######################################
+# Output message depending on log-level.
+# Globals:
+#   $verbosity
+# Arguments:
+#   $1  log level
+#   $2  log message text
+#######################################
+log() {
+	if [ $verbosity -ge $1 ]; then
+		echo $2
+	fi
+}
+log_error()	{ log 1 "$1"; }
+log_info()	{ log 2 "$1"; }
+log_debug()	{ log 3 "$1"; }
+
+
+#######################################
+# Execute command and optionally hide output depending on log-level.
+# Globals:
+#   $verbosity
+# Arguments:
+#   $1  log level
+#   $2  log message text
+#######################################
+log_exec() {
+	if [ $verbosity -ge $1 ]; then
+		eval "${@:2}"
+	else
+		eval "${@:2}" >/dev/null 2>&1
+	fi
+}
+
+
+#######################################
+# Check if the expiry status of a certificate has changed since last check.
+# Arguments:
+#   $1  domain name
+#   $2  path to status file
+#   $3  number of seconds to check certificate expiry
+#   $4  [OPTIONAL] email address
+#######################################
+check_cert() {
+	domain=$1
+	status_file=$2
+	end_check_secs=$3
+	email_addr=$4
+
+	log_exec 3 "echo \
+		| openssl s_client -connect ${domain}:443 2>/dev/null \
+		| openssl x509 -dates -checkend ${end_check_secs}"
+
+	status=$?
+
+	case "$status" in
+		0)	msg="Certificate for ${domain} will not expire in the next ${end_check_days} days"
+			;;
+		*)	msg="Certificate for ${domain} *WILL EXPIRE* within the next ${end_check_days} days"
+			;;
+	esac
+	log_info "$msg"
+
+	if [ -e "$status_file" ]; then
+		old_status=$(cat $status_file)
+	else
+		log_debug "No previous status for host ${domain}"
+		old_status=
+	fi
+
+	[ "$old_status" = "$status" ]
+	result=$?
+
+	if [ $result -ne 0 ]; then
+		printf ${status} > ${status_file}
+#		msg_body="${msg} at $(date --rfc-3339=seconds)"
+		msg_body="${msg}"
+		if [ ! -z "$email_addr" ]; then
+			msg_body="${msg_body}\nSent by ${0##*/} running on $(hostname) at $(date --rfc-3339=seconds)"
+			printf "${msg_body}" | mail "${email_addr}" -s "${msg} [$(hostname)/${0##*/}]"
+		fi
+	else
+		log_debug "No status change for domain: ${domain}"
+	fi
+}
+
+
+
+# Process command line options
+while getopts "d:e:vh" opt; do
+	case "$opt" in
+		d)
+			if [[ "$OPTARG" =~ ^[1-9][0-9]*$ ]]; then
+				end_check_days="$OPTARG"
+			else
+				printf "Expiry days must be a non-zero positive integer.\n"
+				exit 1
+			fi
+			;;
+		e)
+			if [[ "$OPTARG" =~ ^[^@]+@[^@]+$ ]]; then
+				email_addr="$OPTARG"
+			else
+				printf "Email address needs to contain a single @ symbol.\n"
+				exit 1
+			fi
+			;;
+		v)
+			verbosity=$(($verbosity + 1))
+			;;
+		h)
+			usage
+			exit 0
+			;;
+		\?)
+			usage
+			exit 1
+			;;
+	esac
+done
+shift $(($OPTIND - 1))
+
+if [ $# -eq 0 ]; then
+	printf "Domain name not specified\n" >&2
+	exit 1
+fi
+
+# If no email address supplied then force at least verbosity level 2
+if [ $verbosity -lt 2 ] && [ -z "$email_addr" ]; then
+    verbosity=2
+fi
+
+end_check_secs=$(($end_check_days * (60 * 60 * 24)))
+
+
+
+
+for domain in "$@"
+do
+	status_file="${tmpdir}/${domain}"
+	check_cert "$domain" "$status_file" "$end_check_secs" "$email_addr"
+done
+
