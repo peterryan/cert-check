@@ -53,29 +53,12 @@ EOF
 #######################################
 log() {
 	if [ $verbosity -ge $1 ]; then
-		echo $2
+		echo "$2"
 	fi
 }
 log_error()	{ log 1 "$1"; }
 log_info()	{ log 2 "$1"; }
 log_debug()	{ log 3 "$1"; }
-
-
-#######################################
-# Execute command and optionally hide output depending on log-level.
-# Globals:
-#   $verbosity
-# Arguments:
-#   $1  log level
-#   $2  log message text
-#######################################
-log_exec() {
-	if [ $verbosity -ge $1 ]; then
-		eval "${@:2}"
-	else
-		eval "${@:2}" >/dev/null 2>&1
-	fi
-}
 
 
 #######################################
@@ -92,11 +75,11 @@ check_cert() {
 	end_check_secs=$3
 	email_addr=$4
 
-	log_exec 3 "echo \
+	cert_data=$(echo \
 		| openssl s_client -connect ${domain}:443 2>/dev/null \
-		| openssl x509 -dates -checkend ${end_check_secs}"
-
+		| openssl x509 -noout -dates -checkend ${end_check_secs} 2>/dev/null)
 	status=$?
+	log_debug "$cert_data"
 
 	case "$status" in
 		0)	msg="Certificate for ${domain} will not expire in the next ${end_check_days} days"
