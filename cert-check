@@ -81,12 +81,24 @@ check_cert() {
 	status=$?
 	log_debug "$cert_data"
 
-	case "$status" in
-		0)	msg="Certificate for ${domain} will not expire in the next ${end_check_days} days"
-			;;
-		*)	msg="Certificate for ${domain} *WILL EXPIRE* within the next ${end_check_days} days"
-			;;
-	esac
+	expire_date=$(echo "$cert_data" | grep -oP 'notAfter=\K.*' -)
+	expire_secs=$(date --date="$expire_date" --utc +%s)
+	check_secs=$(date --utc +%s -d "+${end_check_days} days")
+	now_secs=$(date --utc +%s)
+
+	msg="Certificate for ${domain}"
+	if [ $expire_secs -ge $check_secs ]; then
+		msg="${msg} will not expire until"
+	else
+		diff_days=$(( ($expire_secs / (60 * 60 * 24)) - ($now_secs / (60 * 60 * 24)) ))
+		if [ $expire_secs -gt $now_secs ]; then
+			msg="${msg} *WILL EXPIRE* in ${diff_days} days time on"
+		else
+			diff_days=$(( $diff_days * -1 ))
+			msg="${msg} *HAS EXPIRED* ${diff_days} days ago on"
+		fi
+	fi
+	msg="${msg} "$(date --utc -d @${expire_secs} -R)
 	log_info "$msg"
 
 	if [ -e "$status_file" ]; then
