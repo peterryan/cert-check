@@ -86,20 +86,23 @@ check_cert() {
 	check_secs=$(date --utc +%s -d "+${end_check_days} days")
 	now_secs=$(date --utc +%s)
 
-	msg="Certificate for ${domain}"
+	msg_subj="Certificate for ${domain}"
 	if [ $expire_secs -ge $check_secs ]; then
-		msg="${msg} will not expire until"
+		msg_subj+=" will not expire"
+		msg_body="${msg_subj} until "
+		msg_subj+=" within the next ${end_check_days} days"
 	else
 		diff_days=$(( ($expire_secs / (60 * 60 * 24)) - ($now_secs / (60 * 60 * 24)) ))
 		if [ $expire_secs -gt $now_secs ]; then
-			msg="${msg} *WILL EXPIRE* in ${diff_days} days time on"
+			msg_subj+=" *WILL EXPIRE* in ${diff_days} days time"
 		else
 			diff_days=$(( $diff_days * -1 ))
-			msg="${msg} *HAS EXPIRED* ${diff_days} days ago on"
+			msg_subj+=" *HAS EXPIRED* ${diff_days} days ago"
 		fi
+		msg_body="${msg_subj} on "
 	fi
-	msg="${msg} "$(date --utc -d @${expire_secs} -R)
-	log_info "$msg"
+	msg_body+=$(date --utc -d @${expire_secs} -R)
+	log_info "${msg_body}"
 
 	if [ -e "$status_file" ]; then
 		old_status=$(cat $status_file)
@@ -113,11 +116,9 @@ check_cert() {
 
 	if [ $result -ne 0 ]; then
 		printf ${status} > ${status_file}
-#		msg_body="${msg} at $(date --rfc-3339=seconds)"
-		msg_body="${msg}"
 		if [ ! -z "$email_addr" ]; then
-			msg_body="${msg_body}\nSent by ${0##*/} running on $(hostname) at $(date --rfc-3339=seconds)"
-			printf "${msg_body}" | mail "${email_addr}" -s "${msg} [$(hostname)/${0##*/}]"
+			msg_body+="\n\n-- \nSent by ${0##*/} running on $(hostname) at $(date --rfc-3339=seconds)"
+			printf "${msg_body}" | mail "${email_addr}" -s "${msg_subj} [$(hostname)/${0##*/}]"
 		fi
 	else
 		log_debug "No status change for domain: ${domain}"
