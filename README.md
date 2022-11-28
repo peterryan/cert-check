@@ -1,4 +1,7 @@
 # cert-check
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![language-bash](https://img.shields.io/badge/Language-Bash-brightgreen.svg)](https://www.gnu.org/software/bash/)
+
 A simple script that checks if the SSL/TLS certificate for a given domain(s)
 will expire within an amount of time.
 
